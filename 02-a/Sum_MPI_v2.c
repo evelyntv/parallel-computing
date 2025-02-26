@@ -122,6 +122,7 @@ void Get_input(
 	
 	if (my_rank == 0) {
 		printf("Enter n: ");
+		fflush(stdout);	
 		scanf("%d", upper_limit);
 	}
 
