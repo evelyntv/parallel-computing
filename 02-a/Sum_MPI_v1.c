@@ -99,19 +99,8 @@ void Get_input(
 	int* lower_limit,	/* out */ 
 	int* upper_limit	/* out */) {
 
-<<<<<<< HEAD
-/* in this case, i is assumed to be 0 */
-*lower_limit = 0;
-
-if (my_rank == 0) {
-	printf("Enter n: ");
-	fflush(stdout);
-	scanf("%d", upper_limit);
-}
-
 MPI_Bcast(lower_limit, 1, MPI_INT, 0, MPI_COMM_WORLD);
 MPI_Bcast(upper_limit, 1, MPI_INT, 0, MPI_COMM_WORLD);
-=======
 	/* in this case, i is assumed to be 0 */
 	*lower_limit = 0;
 
@@ -119,6 +108,7 @@ MPI_Bcast(upper_limit, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 	if (my_rank == 0) { 
 		printf("Enter n: ");
+		fflush(stdout);	
 		scanf("%d", upper_limit);
 		for (dest = 1; dest < comm_sz; dest++) {
 			MPI_Send(lower_limit, 1, MPI_INT, dest, 0,
@@ -132,5 +122,4 @@ MPI_Bcast(upper_limit, 1, MPI_INT, 0, MPI_COMM_WORLD);
 		MPI_Recv(upper_limit, 1, MPI_INT, 0, 0, MPI_COMM_WORLD,
 				MPI_STATUS_IGNORE);
 	}
->>>>>>> 2cef8d2c81437889a7807b6f28753a4b662ad93f
 }	/* Get_input */
