@@ -37,12 +37,17 @@ int main(void) {
 	/* Get input */
 	Get_input(my_rank, comm_sz, &i, &n);
 
-	local_n = n/comm_sz;
+	/* Divide work among processes */
+	local_n = n / comm_sz;
+	local_i = (local_n * my_rank);
 
-	local_i = i + (local_n * my_rank);
-	local_n = local_i + (local_n);
+	/* Edge case for when n < p */
+	if(my_rank == comm_sz - 1) {
+		local_n += n % comm_sz;
+	}
 
-	local_summation = Summation_term(local_i, local_n);
+	/* Perform the function locally */
+	local_summation = Summation_term(local_i, local_n + local_i);
 
 	MPI_Reduce(&local_summation, &total_summation, 1, MPI_DOUBLE, MPI_SUM, 0, 
 			MPI_COMM_WORLD);

@@ -8,6 +8,8 @@
  * 	1.	Each process calculates its local summation
  * 	2a. 	Each process != 0 sends its summation to process 0
  * 	2b. 	Process 0 sums the calculations and prints the results 
+ *
+ *	n = 1000000000
  */
 #include <math.h>
 #include <stdlib.h>
@@ -23,7 +25,7 @@ void Get_input(int my_rank, int comm_sz, int* lower_limit,
 
 int main(void) {
 	int my_rank, comm_sz, local_i, local_n, i, n;
-	double local_summation, total_summation;
+	double local_summation, total_summation, start, finish;
 	int source;
 
 	/* Initialize MPI */
@@ -47,23 +49,28 @@ int main(void) {
 		local_n += n % comm_sz;
 	}
 
+	MPI_Barrier(MPI_COMM_WORLD);
+	start = MPI_Wtime();
+
 	/* Perform the function locally */
 	local_summation = Summation_term(local_i, local_n + local_i);
 
-	/* Add up the summation term calculated by each process*/
+
 	if (my_rank != 0) {
 		MPI_Send(&local_summation, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
 	} else {
 		total_summation = local_summation;
-		for (source = 1; source < comm_sz; source++) {
+		for (source = 1; source < comm_sz; source++) {		
 			MPI_Recv(&local_summation, 1, MPI_DOUBLE, source, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			total_summation += local_summation;
 		}
 	}
+	finish = MPI_Wtime();
 
 	if (my_rank == 0) {
 		total_summation = total_summation * 4;	
 		printf("%f\n", total_summation);
+		printf("elapsed time: %f seconds\n", finish-start);
 	}
 
 	MPI_Finalize();
