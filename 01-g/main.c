@@ -138,6 +138,8 @@ void cdf(unsigned char * buf, unsigned char * out, int * pdf) {
 		for(j = 0; j < width; j++) {
 			k = buf[(i * width) + j];
 			// printf("%d: %d\n", k, (Dm/area) * pdf[k]);
+			/* pdf[k] is divided by nof_gray_shades because it needs to be normalized, and then reverted back. 
+				this is a bad implementation, but I wasn't thinking about normalization until it was too late. */
 			out[(i * width) + j] = nof_gray_shades*((Dm/area) * (pdf[k]/nof_gray_shades));
 		}
 	}
