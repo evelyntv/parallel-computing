@@ -1,16 +1,26 @@
-/**
-* @file image_copy.c
-* @brief This programs opens a BMP image, reads the header, colortable, and image data
-	and stores it in a new file. Makes a copy of the image.
-* @author Abhijit Nathwani
-* @version v0.1
-* @date 2017-12-19
-* 
-*/
+/*	File: main.c
+ *
+ * 	Purpose:	Implement histogram equalization to sharpen the quality of an image.
+ * 
+ *	Compile:	gcc serial.c -o serial
+ *	Run:		./serial
+ *
+ *	Input:		images/lena512.bmp
+ * 	Output:		images/lena_copy.bmp (histogram equalized)
+ *
+ *	Notes:
+ *		1. 	The code for reading and writing BMP files was based off of Abhijit Nathwani's work 
+ *			(https://abhijitnathwani.github.io/blog/2017/12/20/First-C-Program-for-Image-Processing)
+ *		2. 	The algorithm for histogram equalization was adapted from Image Processing in C
+ *			(2e) by Dwayne Phillips
+ *
+ *	Author: Evelyn Evans
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <mpi.h>
 
 const int height = 512;
 const int width = 512;
@@ -19,48 +29,46 @@ const int bmp_header_size = 54;
 const int color_table_size = 1024;
 const int nof_gray_shades = 256;
 
+void initialize_histogram(int * histogram);
 void read_bmp(unsigned char * buf, unsigned char * header, unsigned char * colorTable);
 void write_bmp(unsigned char * buf, unsigned char * header, unsigned char * colorTable);
 void calculate_histogram(unsigned char * buf, int * histogram);
 void calculate_pdf(int * histogram, int * pdf);
-void cdf(unsigned char * buf, unsigned char * out, int * pdf);
+void parallel_cdf(unsigned char * buf, unsigned char * out, int * pdf, int local_n);
+// void get_input(int my_rank, int comm_sz, int * lower_limit, int * upper_limit);
 
 int main(int argc,char *argv[])
 {
-	int i;
-    unsigned char buf[image_size];
-    unsigned char out[image_size];
-    unsigned char header[bmp_header_size];
-	unsigned char colorTable[color_table_size]; // to store the colorTable, if it exists.
-	int histogram[nof_gray_shades];
-	int pdf[nof_gray_shades];
+	int my_rank, comm_sz, local_n, i, n;
+    unsigned char buf[image_size], out[image_size], header[bmp_header_size], colorTable[color_table_size];
+	int histogram[nof_gray_shades], pdf[nof_gray_shades];
 
-	/* initialize histogram */
-	for (i = 0; i < nof_gray_shades; i++) {
-		histogram[i] = 0;
-	}
-
-	/* read input */
+	initialize_histogram(histogram);
     read_bmp(buf, header, colorTable);
-
-	/* calculate histogram */
 	calculate_histogram(buf, histogram);
-
-	/* calculate pdf */
 	calculate_pdf(histogram, pdf);
 
-	/* output pdf */
-	for(i = 0; i < nof_gray_shades; i++) {
-		printf("%d: %d\n", i, pdf[i]);
-	}
+	MPI_Init(NULL, NULL);
+	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
 
-	/* transform image to output image */
-	cdf(buf, out, pdf);
+	// scatter buf, out, and pdf across different processes
+	MPI_Scatter(buf, image_size/comm_sz, MPI_UNSIGNED_CHAR, )
 
-	/* output equalized image */
+	parallel_cdf(buf, out, pdf, local_n);	// critical function
+
+	MPI_Finalize();
+
     write_bmp(out, header, colorTable);
+
+	return 0;
 }
 
+void initialize_histogram(int * histogram) {
+	for (int i = 0; i < nof_gray_shades; i++) {
+		histogram[i] = 0;
+	}
+}
 
 void read_bmp(unsigned char * buf, unsigned char * header, unsigned char * colorTable) {
 	int i;
@@ -74,7 +82,7 @@ void read_bmp(unsigned char * buf, unsigned char * header, unsigned char * color
             exit(0);
  	}
 	
- 	int count = 0;
+ 	// int count = 0;
  	for(i=0;i<54;i++) 
  	{
  		header[i] = getc(streamIn);  // strip out BMP header
@@ -129,18 +137,21 @@ void calculate_pdf(int * histogram, int * pdf) {
 	}
 }
 
-void cdf(unsigned char * buf, unsigned char * out, int * pdf) {
-	int i, j, k;
+void parallel_cdf(unsigned char * buf, unsigned char * out, int * pdf, int local_n) {
+	int local_i;
+	int k;
 	float area = image_size;
 	float Dm = nof_gray_shades;
-	printf("Dm/area = %f\n", Dm/area);
-	for(i = 0; i < height; i++) {
-		for(j = 0; j < width; j++) {
-			k = buf[(i * width) + j];
-			// printf("%d: %d\n", k, (Dm/area) * pdf[k]);
-			/* pdf[k] is divided by nof_gray_shades because it needs to be normalized, and then reverted back. 
-				this is a bad implementation, but I wasn't thinking about normalization until it was too late. */
-			out[(i * width) + j] = nof_gray_shades*((Dm/area) * (pdf[k]/nof_gray_shades));
-		}
+
+	for(local_i = 0; local_i < image_size; local_i++) {
+		k = buf[local_i];
+		out[local_i] = nof_gray_shades*((Dm/area) * (pdf[k]/nof_gray_shades));
 	}
 }
+
+// void get_input(int my_rank, int comm_sz, int* lower_limit, int* upper_limit) {
+// 	*lower_limit = 0;
+// 	*upper_limit = image_size;
+// 	MPI_Bcast(lower_limit, 1, MPI_INT, 0, MPI_COMM_WORLD);
+// 	MPI_Bcast(upper_limit, 1, MPI_INT, 0, MPI_COMM_WORLD);
+// }
