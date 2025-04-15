@@ -35,7 +35,8 @@ void write_bmp(unsigned char * buf, unsigned char * header, unsigned char * colo
 void calculate_histogram(unsigned char * buf, int * histogram);
 void calculate_pdf(int * histogram, int * pdf);
 void parallel_cdf(unsigned char * buf, unsigned char * out, int * pdf, int local_n);
-// void get_input(int my_rank, int comm_sz, int * lower_limit, int * upper_limit);
+void scatter_array(unsigned char * local_buf, local_i);
+void broadcast_array()
 
 int main(int argc,char *argv[])
 {
