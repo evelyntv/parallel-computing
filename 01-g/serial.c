@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include "timer.h"
 
 const int height = 512;
 const int width = 512;
@@ -27,6 +28,7 @@ const int image_size = 512*512;
 const int bmp_header_size = 54;
 const int color_table_size = 1024;
 const int nof_gray_shades = 256;
+const int bloat = 16384; // 2^14
 
 void initialize_histogram(int * histogram);
 void read_bmp(unsigned char * buf, unsigned char * header, unsigned char * colorTable);
@@ -39,13 +41,27 @@ int main(int argc,char *argv[])
 {
     unsigned char buf[image_size], out[image_size], header[bmp_header_size], colorTable[color_table_size];
 	int histogram[nof_gray_shades], pdf[nof_gray_shades];
+	double start_time, finish_time;
 
 	initialize_histogram(histogram);
     read_bmp(buf, header, colorTable);
 	calculate_histogram(buf, histogram);
 	calculate_pdf(histogram, pdf);
-	cdf(buf, out, pdf);	// critical function
+
+	/* Start Critical Function */
+
+	GET_TIME(start_time);
+
+	for(int i = 0; i < bloat; i++) {
+		cdf(buf, out, pdf);
+	}
+
+	GET_TIME(finish_time);
+
+	/* End Critical Function */
+
     write_bmp(out, header, colorTable);
+	printf("time elapsed: %f sec\n", finish_time - start_time);
 
 	return 0;
 }
@@ -127,13 +143,9 @@ void cdf(unsigned char * buf, unsigned char * out, int * pdf) {
 	int i, j, k;
 	float area = image_size;
 	float Dm = nof_gray_shades;
-	// printf("Dm/area = %f\n", Dm/area);
 	for(i = 0; i < height; i++) {
 		for(j = 0; j < width; j++) {
 			k = buf[(i * width) + j];
-			// printf("%d: %d\n", k, (Dm/area) * pdf[k]);
-			/* pdf[k] is divided by nof_gray_shades because it needs to be normalized, and then reverted back. 
-				this is a bad implementation, but I wasn't thinking about normalization until it was too late. */
 			out[(i * width) + j] = nof_gray_shades*((Dm/area) * (pdf[k]/nof_gray_shades));
 		}
 	}

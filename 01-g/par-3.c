@@ -1,8 +1,8 @@
-/*	File: main.c
+/*	File: par-3.c
  *
  * 	Purpose:	Implement histogram equalization to sharpen the quality of an image.
  * 
- *	Compile:	mpicc -g -Wall -o Sum_MPI_v2 Sum_MPI_v2.c -lm 
+ *	Compile:	mpicc -g -Wall -o par par-3.c
  *	Run:		mpiexec -n <number of processes> ./Sum_MPI_v2
  *
  *	Input:					images/lena512.bmp
@@ -11,16 +11,19 @@
  *	Notes:
  *		1. 	The code for reading and writing BMP files was based off of Abhijit Nathwani's work 
  *			(https://abhijitnathwani.github.io/blog/2017/12/20/First-C-Program-for-Image-Processing)
- *		2. 	The algorithm for histogram equalization was adapted from Image Processing in C
- *			(2e) by Dwayne Phillips
+ *		2. 	The algorithm for histogram equalization was adapted from Image Processing in C (2e) by Dwayne Phillips
+ * 		3. 	"timer.h" was taken from An Introduction to Parallel Programming (2e) by Pacheco and Malensek
+ *
+ *	Important:
+ *		The number of processes must be a power of 2.
  *
  *	Author: Evelyn Evans
  */
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <string.h>
 #include <mpi.h>
+#include "timer.h"
 
 const int height = 512;
 const int width = 512;
@@ -28,6 +31,7 @@ const int image_size = 512*512;
 const int bmp_header_size = 54;
 const int color_table_size = 1024;
 const int nof_gray_shades = 256;
+const int bloat_serial = 16384;		// 2 ^ 14
 
 void initialize_histogram(int * histogram);
 void read_bmp(unsigned char * input_image, unsigned char * header, unsigned char * colorTable);
@@ -35,13 +39,22 @@ void write_bmp(unsigned char * input_image, unsigned char * header, unsigned cha
 void calculate_histogram(unsigned char * input_image, int * histogram);
 void calculate_histogram_sum(int * histogram, int * histogram_sum);
 void transpose_image(unsigned char * input_image, unsigned char * output_image, int * histogram_sum);
-void transpose_image_parallel(unsigned char * local_input, unsigned char * local_output,  int * histogram_sum, int chunk_size, int process, float Dm, float area);
+void transpose_image_parallel(
+	unsigned char * local_input, 
+	unsigned char * local_output,  
+	int * histogram_sum, 
+	int chunk_size, 
+	int process, 
+	float Dm, 
+	float area,
+	int bloat);
 
 int main(int argc,char *argv[])
 {
     unsigned char input_image[image_size], output_image[image_size], header[bmp_header_size], colorTable[color_table_size];
 	int histogram[nof_gray_shades], histogram_sum[nof_gray_shades];
-	int chunk_size, my_rank, comm_sz;
+	int chunk_size, my_rank, comm_sz, bloat;
+	double local_start, local_finish, local_elapsed, elapsed; 
 
 	unsigned char *local_input_image, *local_output_image;
 
@@ -52,15 +65,11 @@ int main(int argc,char *argv[])
 	MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
 
 	chunk_size = image_size / comm_sz;
-	// local_i = (my_rank * chunk_size);
-
-	printf("test\n");
+	bloat = bloat_serial * comm_sz;
 
 	local_input_image = malloc(chunk_size * sizeof(unsigned char));
 	local_output_image = malloc(chunk_size * sizeof(unsigned char));
-
-	MPI_Barrier(MPI_COMM_WORLD);
-
+	
 	if (my_rank == 0) {
 		initialize_histogram(histogram);
 		read_bmp(input_image, header, colorTable);
@@ -69,23 +78,32 @@ int main(int argc,char *argv[])
 	}
 
 	MPI_Bcast(histogram_sum, nof_gray_shades, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&bloat, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 	MPI_Scatter(input_image, chunk_size, MPI_UNSIGNED_CHAR, local_input_image, chunk_size, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
-	transpose_image_parallel(local_input_image, local_output_image, histogram_sum, chunk_size, my_rank, (float)nof_gray_shades, (float)image_size);
+	MPI_Barrier(MPI_COMM_WORLD);
+	local_start = MPI_Wtime();
+
+	transpose_image_parallel(local_input_image, local_output_image, histogram_sum, chunk_size, my_rank, (float)nof_gray_shades, (float)image_size, bloat);
+
+	local_finish = MPI_Wtime();
+	local_elapsed = local_finish - local_start;
+	MPI_Reduce(&local_elapsed, &elapsed, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
 	MPI_Gather(local_output_image, chunk_size, MPI_UNSIGNED_CHAR, output_image, chunk_size, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
 	free(local_output_image);
 	free(local_input_image);
 
-	/* End Parallelization */
+	if(my_rank == 0) {
+		write_bmp(output_image, header, colorTable);
+		printf("time elapsed: %f sec\n", elapsed);
+	}
 
 	MPI_Finalize();
 
-	write_bmp(output_image, header, colorTable);
-
-	//transpose_image(input_image, output_image, histogram_sum);
+	/* End Parallelization */
 
 	return 0;
 }
@@ -175,19 +193,22 @@ void transpose_image(unsigned char * input_image, unsigned char * output_image, 
 	}
 }
 
-void transpose_image_parallel(unsigned char * local_input, unsigned char * local_output, int * histogram_sum, int chunk_size, int process, float Dm, float area) {
-	printf("process: %d\n", process);
+void transpose_image_parallel(
+	unsigned char * local_input, 
+	unsigned char * local_output, 
+	int * histogram_sum, 
+	int chunk_size, 
+	int process, 
+	float Dm, 
+	float area,
+	int bloat) {
+
 	int k;
-	for(int i = 0; i < chunk_size; i++) {
-		// printf("%d ", i);
-		k = local_input[i];
-		if(i == 0) {
-			printf("Dm/area: %f\n", Dm/area);
-			printf("histogram_sum[k]: %d\n", histogram_sum[k]);
-			printf("histogram_sum[k] * Dm/area: %f\n", Dm/area * histogram_sum[k]);
-			printf("casted: %d\n", (int)(Dm/area * histogram_sum[k]));
+
+	for(int b = 0; b < bloat; b++) {
+		for(int i = 0; i < chunk_size; i++) {
+			k = local_input[i];
+			local_output[i] = (unsigned char)((Dm/area) * (histogram_sum[k]));
 		}
-		local_output[i] = (unsigned char)((Dm/area) * (histogram_sum[k]));
 	}
-	printf("\n");
 }
